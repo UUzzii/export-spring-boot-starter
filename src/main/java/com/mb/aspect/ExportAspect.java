@@ -24,7 +24,9 @@ import java.lang.reflect.Field;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -52,60 +54,15 @@ public class ExportAspect {
             return pjp.proceed();
         }
 
+        /* 参数采用最近原则，优先取注解的，如果注解没有指定才取全局的 */
         String exportParam = StringUtils.isNotBlank(export.exportParam()) ? export.exportParam() : exportProperties.getExportParam();
         String exportAllParam = StringUtils.isNotBlank(export.exportAllParam()) ? export.exportAllParam() : exportProperties.getExportAllParam();
         String pageNumParam = StringUtils.isNotBlank(export.pageNumParam()) ? export.pageNumParam() : exportProperties.getPageNumParam();
         String pageSizeParam = StringUtils.isNotBlank(export.pageSizeParam()) ? export.pageSizeParam() : exportProperties.getPageSizeParam();
 
-        // 获取HttpServletRequest
-        HttpServletRequest request = sra.getRequest();
-
         // 根据请求方式获取请求参数，判断是否为导出
-        boolean isExport = false;
-        boolean isExportAll = false;
-
-        String exportParamValue = request.getParameter(exportParam);
-        if (StringUtils.isNotBlank(exportParamValue)
-                && ("1".equals(exportParamValue) || "true".equals(exportParamValue))) {
-            isExport = true;
-            // 导出请求，接着判断是否为导出全部
-            String exportAllParamValue = request.getParameter(exportAllParam);
-            if (StringUtils.isNotBlank(exportAllParamValue)
-                    && ("1".equals(exportAllParamValue) || "true".equals(exportAllParamValue))) {
-                isExportAll = true;
-            }
-        }
-
-        if ("POST".equals(request.getMethod()) && StringUtils.isBlank(exportParamValue)) {
-            // 如果是POST请求，那么可能是在body里传的
-            Object[] args = pjp.getArgs();
-            for (Object arg : args) {
-                // 过滤基本数据类型
-                if (this.filterBasic(arg)) continue;
-                // 排除掉所有的基本数据类型和他们的包装类，剩下的就是实体类，获取实体类的所有属性
-                List<Field> fieldList = ReflectionFieldUtils.getAllFieldsOfName(arg.getClass(), ListUtil.toList(exportParam, exportAllParam));
-                if (CollUtil.isEmpty(fieldList)) {
-                    continue;
-                }
-                // 修改分页参数
-                for (Field field : fieldList) {
-                    field.setAccessible(true);
-                    if (field.getName().equals(exportParam)) {
-                        Object o = field.get(arg);
-                        if (o != null && ("1".equals(o.toString()) || "true".equals(o.toString()))) {
-                            isExport = true;
-                        }
-                    } else if (field.getName().equals(exportAllParam)) {
-                        Object o = field.get(arg);
-                        if (o != null && ("1".equals(o.toString()) || "true".equals(o.toString()))) {
-                            isExportAll = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!isExport) {
+        Map<String, Boolean> exportMap = this.checkExport(pjp, sra.getRequest(), exportParam, exportAllParam);
+        if (!exportMap.get(exportParam)) {
             return pjp.proceed();
         }
 
@@ -114,46 +71,8 @@ public class ExportAspect {
         // 获取方法的参数，
         Object[] args = pjp.getArgs();
 
-        if (isExportAll) {
-            // 导出全部，那么就需要修改分页参数
-            MethodSignature signature = (MethodSignature) pjp.getSignature();
-            // 使用 Spring 的工具类获取参数名
-            String[] parameterNames = new LocalVariableTableParameterNameDiscoverer().getParameterNames(signature.getMethod());
-
-            // 先判断分页参数是否在方法参数中
-            boolean isReturn = false;
-            for (int i = 0; i < parameterNames.length; i++) {
-                String parameterName = parameterNames[i];
-                if (parameterName.equals(pageNumParam)) {
-                    args[i] = null;
-                    isReturn = true;
-                } else if (parameterName.equals(pageSizeParam)) {
-                    args[i] = null;
-                    isReturn = true;
-                }
-            }
-
-            if (!isReturn) {
-                // 如果分页参数不在方法参数中，那么就在实体类中
-                for (Object arg : args) {
-                    // 过滤基本数据类型
-                    if (this.filterBasic(arg)) continue;
-                    // 排除掉所有的基本数据类型和他们的包装类，剩下的就是实体类，获取实体类的所有属性
-                    List<Field> fieldList = ReflectionFieldUtils.getAllFieldsOfName(arg.getClass(), ListUtil.toList(pageNumParam, pageSizeParam));
-                    if (CollUtil.isEmpty(fieldList)) {
-                        continue;
-                    }
-                    // 修改分页参数
-                    for (Field field : fieldList) {
-                        field.setAccessible(true);
-                        if (field.getName().equals(pageNumParam)) {
-                            field.set(arg, null);
-                        } else if (field.getName().equals(pageSizeParam)) {
-                            field.set(arg, null);
-                        }
-                    }
-                }
-            }
+        if (exportMap.get(exportAllParam)) {
+            this.handleExportAll(pjp, pageNumParam, pageSizeParam, args);
         }
 
         // 执行方法
@@ -198,6 +117,67 @@ public class ExportAspect {
     }
 
     /**
+     * 校验是否为导出请求
+     * @param pjp
+     * @param request
+     * @param exportParam
+     * @param exportAllParam
+     * @return
+     * @throws Exception
+     */
+    private Map<String, Boolean> checkExport(ProceedingJoinPoint pjp, HttpServletRequest request, String exportParam, String exportAllParam) throws Exception {
+        // 判断是否导出请求，导出的话是否为导出全部
+        boolean isExport = false;
+        boolean isExportAll = false;
+
+        String exportParamValue = request.getParameter(exportParam);
+        if (StringUtils.isNotBlank(exportParamValue)
+                && ("1".equals(exportParamValue) || "true".equals(exportParamValue))) {
+            isExport = true;
+            // 导出请求，接着判断是否为导出全部
+            String exportAllParamValue = request.getParameter(exportAllParam);
+            if (StringUtils.isNotBlank(exportAllParamValue)
+                    && ("1".equals(exportAllParamValue) || "true".equals(exportAllParamValue))) {
+                isExportAll = true;
+            }
+        }
+
+        if ("POST".equals(request.getMethod()) && StringUtils.isBlank(exportParamValue)) {
+            // 如果是POST请求，那么可能是在body里传的
+            Object[] args = pjp.getArgs();
+            for (Object arg : args) {
+                // 过滤基本数据类型
+                if (this.filterBasic(arg)) continue;
+                // 排除掉所有的基本数据类型和他们的包装类，剩下的就是实体类，获取实体类的所有属性
+                List<Field> fieldList = ReflectionFieldUtils.getAllFieldsOfName(arg.getClass(), ListUtil.toList(exportParam, exportAllParam));
+                if (CollUtil.isEmpty(fieldList)) {
+                    continue;
+                }
+                // 修改分页参数
+                for (Field field : fieldList) {
+                    field.setAccessible(true);
+                    if (field.getName().equals(exportParam)) {
+                        Object o = field.get(arg);
+                        if (o != null && ("1".equals(o.toString()) || "true".equals(o.toString()))) {
+                            isExport = true;
+                        }
+                    } else if (field.getName().equals(exportAllParam)) {
+                        Object o = field.get(arg);
+                        if (o != null && ("1".equals(o.toString()) || "true".equals(o.toString()))) {
+                            isExportAll = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        Map<String, Boolean> map = new HashMap<>();
+        map.put(exportParam, isExport);
+        map.put(exportAllParam, isExportAll);
+        return map;
+    }
+
+    /**
      * 过滤基本数据类型
      * @param arg
      * @return
@@ -223,5 +203,56 @@ public class ExportAspect {
             return true;
         }
         return false;
+    }
+
+    /**
+     * 处理导出全部
+     * @param pjp
+     * @param pageNumParam
+     * @param pageSizeParam
+     * @param args
+     * @throws Exception
+     */
+    private void handleExportAll(ProceedingJoinPoint pjp, String pageNumParam, String pageSizeParam, Object[] args) throws Exception {
+        // 导出全部，那么就需要修改分页参数
+        MethodSignature signature = (MethodSignature) pjp.getSignature();
+        // 使用 Spring 的工具类获取参数名
+        String[] parameterNames = new LocalVariableTableParameterNameDiscoverer().getParameterNames(signature.getMethod());
+        if (parameterNames == null || parameterNames.length == 0) {
+            throw new RuntimeException("方法没有参数，你是怎么获取的？用HttpServletRequest吗？");
+        }
+
+        // 先判断分页参数是否在方法参数中
+        boolean isReturn = false;
+
+        for (int i = 0; i < parameterNames.length; i++) {
+            String parameterName = parameterNames[i];
+            if (parameterName.equals(pageNumParam) || parameterName.equals(pageSizeParam)) {
+                args[i] = null;
+                isReturn = true;
+            }
+        }
+
+        if (isReturn) {
+            return;
+        }
+
+        // 如果分页参数不在方法参数中，那么就在实体类中
+        for (Object arg : args) {
+            // 过滤基本数据类型
+            if (this.filterBasic(arg)) continue;
+            // 排除掉所有的基本数据类型和他们的包装类，剩下的就是实体类，获取实体类的所有属性
+            List<Field> fieldList = ReflectionFieldUtils.getAllFieldsOfName(arg.getClass(), ListUtil.toList(pageNumParam, pageSizeParam));
+            if (CollUtil.isEmpty(fieldList)) {
+                continue;
+            }
+            // 修改分页参数
+            for (Field field : fieldList) {
+                field.setAccessible(true);
+                if (field.getName().equals(pageNumParam) || field.getName().equals(pageSizeParam)) {
+                    field.set(arg, null);
+                }
+            }
+        }
     }
 }
