@@ -10,14 +10,50 @@
         <version>2.6.13</version>
     </parent>
 
-    <groupId>com.mb</groupId>
+    <groupId>io.github.uuzzii</groupId>
     <artifactId>export-spring-boot-starter</artifactId>
     <version>1.1</version>
+
+    <name>export-spring-boot-starter</name>
+    <description>通用导出</description>
+    <url>https://github.com/UUzzii/export-spring-boot-starter/tree/master</url>
+
+    <developers>
+        <developer>
+            <name>shipeng</name>
+            <email>sp_nice@163.com</email>
+            <organizationUrl>https://github.com/UUzzii/export-spring-boot-starter/tree/master</organizationUrl>
+        </developer>
+    </developers>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+        </license>
+    </licenses>
+
+    <scm>
+        <connection>scm:https://github.com/UUzzii/export-spring-boot-starter.git</connection>
+        <url>https://github.com/UUzzii/export-spring-boot-starter/tree/master</url>
+    </scm>
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>central</id>
+            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+        <repository>
+            <id>central</id>
+            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
     <dependencies>
@@ -60,4 +96,86 @@
             <version>4.0.3</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!--spring-boot-maven-plugin 如果不是springboot starter 项目可以不加 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <classifier>exec</classifier>
+                    <!-- 不设置skip为false:打包的时候生成的jar包结构如下：BOOT-INF下包括了项目结构包和lib(依赖的代码jar包)，
+                    最外层还有一个启动加载器类包,主要用在需求执行（运行）的jar，如果打包是一个依赖包，不需要单独运行，
+                    就设置 <skip>true</skip>.如果是一个需要启动运行的jar，就不需要添加<skip>，或者设置<skip>为false。
+                     -->
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.4.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <tokenAuth>true</tokenAuth>
+                    <autoPublish>true</autoPublish>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>1.5</version>
+                <configuration>
+                    <executable>D:\GnuPG\bin\gpg.exe</executable>
+                    <keyname>shipeng</keyname>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>2.2.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.9.1</version>
+                <configuration>
+                    <!--跳过javadoc语法不规范报错 -->
+                    <additionalparam>-Xdoclint:none</additionalparam>
+                    <javadocExecutable>D:\Program Files\Java\jdk-1.8\bin\javadoc.exe</javadocExecutable>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>
